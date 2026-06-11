@@ -1,0 +1,390 @@
+/* Velo Player — Lexus Cockpit / Hyprland Glass */
+
+/* ── Adwaita tokens (matches Velo Browser) ──────────────────────────────── */
+@define-color accent_color          #8ab4d4;
+@define-color accent_bg_color       #4d8fb8;
+@define-color accent_fg_color       #ffffff;
+@define-color window_bg_color       #09090c;
+@define-color view_bg_color         #06060a;
+@define-color headerbar_bg_color    rgba(8, 9, 14, 0.82);
+@define-color headerbar_fg_color    rgba(225, 234, 248, 0.90);
+@define-color headerbar_border_color rgba(195, 215, 238, 0.07);
+
+/* ── Window ──────────────────────────────────────────────────────────────── */
+window.background {
+    background-color: @window_bg_color;
+}
+
+/* ── Header bar — cockpit console ────────────────────────────────────────── */
+headerbar {
+    background-color: rgba(7, 8, 13, 0.86);
+    background-image: linear-gradient(90deg,
+        rgba(138, 180, 212, 0) 0%,
+        rgba(138, 180, 212, 0.40) 50%,
+        rgba(138, 180, 212, 0) 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 1px;
+    background-position: top center;
+    border-bottom: 1px solid rgba(195, 215, 238, 0.07);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 1px 0 rgba(0, 0, 0, 0.4),
+        0 1px 12px rgba(138, 180, 212, 0.06);
+    padding: 4px 8px;
+}
+
+label.brand-mark {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    color: rgba(138, 180, 212, 0.50);
+    padding: 0 6px;
+}
+
+label.header-title {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    color: rgba(225, 234, 248, 0.78);
+}
+
+label.status-label {
+    font-size: 11px;
+    color: rgba(165, 190, 218, 0.50);
+    padding: 0 10px;
+}
+
+/* ── Overall layout ──────────────────────────────────────────────────────── */
+.velo-main {
+    background-color: @view_bg_color;
+}
+
+/* ── Now Playing panel (left) — the turntable ───────────────────────────── */
+.now-playing-panel {
+    background-color: #0a0b11;
+    border-right: 1px solid rgba(195, 215, 240, 0.07);
+    padding-top: 8px;
+}
+
+.vinyl-record {
+    min-width: 280px;
+    min-height: 280px;
+}
+
+.record-disc {
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%,
+        #1c1d22 0%,
+        #16171b 28%,
+        #0e0f13 29%,
+        #16171b 30%,
+        #1c1d22 46%,
+        #16171b 47%,
+        #0e0f13 48%,
+        #1c1d22 64%,
+        #16171b 65%,
+        #0e0f13 66%,
+        #1a1b20 100%);
+    box-shadow:
+        0 0 0 1px rgba(195, 215, 240, 0.06),
+        0 12px 40px rgba(0, 0, 0, 0.55),
+        inset 0 0 60px rgba(0, 0, 0, 0.5);
+}
+
+.record-label {
+    border-radius: 50%;
+    background-color: #1c1d22;
+    box-shadow:
+        0 0 0 1px rgba(195, 215, 240, 0.10),
+        0 0 24px rgba(138, 180, 212, 0.10);
+}
+
+.record-spindle {
+    border-radius: 50%;
+    background-color: #06060a;
+    box-shadow: 0 0 0 1px rgba(195, 215, 240, 0.18);
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.vinyl-record.spinning .record-disc,
+.vinyl-record.spinning .record-label {
+    animation: spin 6s linear infinite;
+}
+
+.now-playing-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: rgba(232, 240, 252, 0.94);
+}
+
+.now-playing-artist {
+    font-size: 13px;
+    color: rgba(185, 210, 235, 0.55);
+}
+
+.now-playing-album {
+    font-size: 11.5px;
+    letter-spacing: 0.5px;
+    color: rgba(150, 175, 205, 0.36);
+}
+
+/* ── Seek bar & transport ────────────────────────────────────────────────── */
+.time-label {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(148, 175, 208, 0.40);
+    min-width: 34px;
+}
+
+scale.progress-scale trough {
+    min-height: 4px;
+    border-radius: 2px;
+    background-color: rgba(195, 215, 240, 0.10);
+}
+scale.progress-scale highlight {
+    border-radius: 2px;
+    background-color: rgba(138, 180, 212, 0.55);
+}
+scale.progress-scale slider {
+    min-width: 10px;
+    min-height: 10px;
+    margin: -4px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    box-shadow: 0 0 0 4px rgba(138, 180, 212, 0.18);
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+scale.progress-scale:hover slider {
+    opacity: 1;
+}
+
+.transport-controls {
+    margin-bottom: 8px;
+}
+
+button.transport-btn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    background-color: rgba(195, 215, 240, 0.06);
+    border: 1px solid rgba(205, 222, 242, 0.10);
+    color: rgba(225, 235, 250, 0.75);
+    transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+button.transport-btn:hover {
+    background-color: rgba(138, 180, 212, 0.14);
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(138, 180, 212, 0.20);
+}
+button.transport-btn:active {
+    background-color: rgba(138, 180, 212, 0.24);
+}
+button.transport-btn-primary {
+    min-width: 56px;
+    min-height: 56px;
+    background-color: rgba(138, 180, 212, 0.16);
+    border-color: rgba(138, 180, 212, 0.35);
+    color: #ffffff;
+    box-shadow: 0 0 18px rgba(138, 180, 212, 0.18);
+}
+button.transport-btn-primary:hover {
+    background-color: rgba(138, 180, 212, 0.26);
+    box-shadow: 0 0 22px rgba(138, 180, 212, 0.30);
+}
+
+/* ── Volume ──────────────────────────────────────────────────────────────── */
+.volume-row image {
+    color: rgba(165, 190, 218, 0.45);
+}
+
+scale.volume-scale trough {
+    min-height: 4px;
+    border-radius: 2px;
+    background-color: rgba(195, 215, 240, 0.10);
+}
+scale.volume-scale highlight {
+    border-radius: 2px;
+    background-color: rgba(138, 180, 212, 0.45);
+}
+scale.volume-scale slider {
+    min-width: 10px;
+    min-height: 10px;
+    margin: -4px;
+    border-radius: 50%;
+    background-color: rgba(225, 235, 250, 0.85);
+}
+
+/* ── Search bar (bottom centre) ─────────────────────────────────────────── */
+.search-bar-row {
+    padding: 14px 0;
+    background-color: rgba(7, 8, 13, 0.90);
+    border-top: 1px solid rgba(195, 215, 238, 0.07);
+}
+
+entry.search-bar {
+    border-radius: 22px;
+    min-width: 420px;
+    font-size: 13.5px;
+    padding: 8px 22px;
+    background-color: rgba(190, 210, 232, 0.055);
+    border: 1px solid rgba(205, 222, 242, 0.10);
+    color: rgba(228, 238, 252, 0.88);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+entry.search-bar:focus-within {
+    background-color: rgba(195, 218, 242, 0.10);
+    border-color: rgba(138, 180, 212, 0.50);
+    box-shadow:
+        0 0 0 3px rgba(138, 180, 212, 0.16),
+        0 0 18px rgba(138, 180, 212, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ── Sidebar — playlists (right) ────────────────────────────────────────── */
+.velo-sidebar {
+    background-color: #0a0b11;
+    border-left: 1px solid rgba(195, 215, 240, 0.07);
+    box-shadow: -1px 0 0 rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-header {
+    min-height: 40px;
+    padding: 0 6px 0 16px;
+    background: rgba(8, 9, 15, 0.94);
+    border-bottom: 1px solid rgba(195, 215, 240, 0.07);
+}
+
+button.flat {
+    border-radius: 8px;
+    color: rgba(196, 216, 240, 0.44);
+    transition: background-color 140ms ease, color 140ms ease;
+}
+button.flat:hover {
+    background-color: rgba(138, 180, 212, 0.12);
+    color: rgba(228, 242, 255, 0.92);
+    box-shadow: inset 0 0 0 1px rgba(138, 180, 212, 0.10);
+}
+button.flat:active {
+    background-color: rgba(138, 180, 212, 0.20);
+    color: #ffffff;
+}
+
+button.sidebar-icon-btn {
+    margin: 5px 0;
+}
+
+.panel-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 3.5px;
+    color: rgba(185, 210, 235, 0.36);
+}
+
+.panel-list {
+    background-color: transparent;
+}
+.panel-list > row {
+    background-color: transparent;
+    border-bottom: 1px solid rgba(195, 215, 240, 0.04);
+    transition: background-color 100ms ease;
+}
+.panel-list > row:hover {
+    background-color: rgba(195, 215, 240, 0.05);
+}
+.panel-list > row:active {
+    background-color: rgba(138, 180, 212, 0.10);
+}
+
+.row-title {
+    font-size: 13px;
+    font-weight: 450;
+    color: rgba(222, 234, 252, 0.84);
+}
+.row-meta {
+    font-size: 11.5px;
+    color: rgba(165, 190, 218, 0.36);
+}
+
+.playlist-row {
+    padding: 8px 16px;
+}
+.playlist-art {
+    border-radius: 4px;
+    background-color: #15161c;
+}
+
+/* ── Track list (centre) ────────────────────────────────────────────────── */
+.track-list-panel {
+    background-color: @view_bg_color;
+}
+
+.content-header {
+    padding: 18px 24px 8px 24px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 3.5px;
+    color: rgba(185, 210, 235, 0.36);
+}
+
+.track-list {
+    background-color: transparent;
+}
+.track-list > row {
+    background-color: transparent;
+    border-bottom: 1px solid rgba(195, 215, 240, 0.04);
+    transition: background-color 100ms ease;
+}
+.track-list > row:hover {
+    background-color: rgba(195, 215, 240, 0.05);
+}
+.track-list > row.playing {
+    background-color: rgba(138, 180, 212, 0.10);
+    box-shadow: inset 2px 0 0 rgba(138, 180, 212, 0.65);
+}
+
+.track-row {
+    padding: 8px 24px;
+}
+.track-art {
+    border-radius: 4px;
+    background-color: #15161c;
+}
+.track-title {
+    font-size: 13px;
+    font-weight: 450;
+    color: rgba(222, 234, 252, 0.84);
+}
+.track-list > row.playing .track-title {
+    color: @accent_color;
+}
+.track-subtitle {
+    font-size: 11.5px;
+    color: rgba(165, 190, 218, 0.36);
+}
+.track-duration {
+    padding-left: 12px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(148, 175, 208, 0.36);
+}
+
+/* ── Scrollbars — accent-tinted to match the cockpit palette ────────────── */
+scrollbar slider {
+    background-color: rgba(138, 180, 212, 0.18);
+    border-radius: 8px;
+    min-width: 6px;
+    min-height: 6px;
+}
+scrollbar slider:hover {
+    background-color: rgba(138, 180, 212, 0.32);
+}
+scrollbar slider:active {
+    background-color: rgba(138, 180, 212, 0.48);
+}
