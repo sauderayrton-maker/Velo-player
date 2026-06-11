@@ -6,11 +6,11 @@ use gtk4::prelude::*;
 use libadwaita::prelude::*;
 
 use crate::spotify::{Command, Event};
-use crate::ui::{NowPlayingPanel, PlaylistsPanel, TrackListPanel};
+use crate::ui::{NowPlayingPanel, RecentsPanel, TrackListPanel};
 
-/// Builds the main window: now-playing/turntable on the left, the track
-/// list (search results or a playlist) in the centre, the playlist sidebar
-/// on the right, and a search bar docked at the bottom centre.
+/// Builds the main window: now-playing/turntable on the left, search
+/// results in the centre, recently played tracks on the right, and a
+/// search bar docked at the bottom centre.
 pub fn build_window(
     app: &libadwaita::Application,
     cmd_tx: Sender<Command>,
@@ -34,9 +34,26 @@ pub fn build_window(
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .build();
 
+    let menu_btn = gtk4::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .tooltip_text("Menu")
+        .build();
+    let menu = gio::Menu::new();
+    menu.append(Some("Check for Updates…"), Some("win.check-update"));
+    menu_btn.set_menu_model(Some(&menu));
+
+    let check_update_action = gio::SimpleAction::new("check-update", None);
+    check_update_action.connect_activate(glib::clone!(
+        #[weak]
+        window,
+        move |_, _| check_for_updates(&window)
+    ));
+    window.add_action(&check_update_action);
+
     let header = libadwaita::HeaderBar::new();
     header.pack_start(&brand);
     header.set_title_widget(Some(&title));
+    header.pack_end(&menu_btn);
     header.pack_end(&status_label);
 
     // ── Banner for setup / connection issues ──
@@ -50,10 +67,20 @@ pub fn build_window(
         }
     ));
 
+    // One-click link to the Spotify Developer Dashboard's "create app" page,
+    // shown alongside the banner while setup/login isn't complete yet.
+    let dashboard_link = gtk4::LinkButton::builder()
+        .label("Open Spotify Dashboard to add your Client ID ↗")
+        .uri("https://developer.spotify.com/dashboard/create")
+        .css_classes(vec!["dashboard-link"])
+        .halign(gtk4::Align::Center)
+        .visible(false)
+        .build();
+
     // ── Panels ──
     let now_playing = NowPlayingPanel::build(cmd_tx.clone());
     let track_list = TrackListPanel::build(cmd_tx.clone());
-    let playlists = PlaylistsPanel::build(cmd_tx.clone());
+    let recents = RecentsPanel::build(cmd_tx.clone());
 
     let main_box = gtk4::Box::builder()
         .orientation(gtk4::Orientation::Horizontal)
@@ -62,7 +89,7 @@ pub fn build_window(
         .build();
     main_box.append(&now_playing.root);
     main_box.append(&track_list.root);
-    main_box.append(&playlists.root);
+    main_box.append(&recents.root);
 
     // ── Search bar, bottom centre ──
     let search_entry = gtk4::SearchEntry::builder()
@@ -87,6 +114,7 @@ pub fn build_window(
 
     let content_box = gtk4::Box::builder().orientation(gtk4::Orientation::Vertical).build();
     content_box.append(&banner);
+    content_box.append(&dashboard_link);
     content_box.append(&main_box);
     content_box.append(&search_row);
 
@@ -110,38 +138,42 @@ pub fn build_window(
                 Event::Status(message) => status_label.set_label(&message),
 
                 Event::ConfigRequired(path) => {
-                    banner.set_title(&format!(
+                    banner.set_title(&glib::markup_escape_text(&format!(
                         "Add your Spotify Client ID to {} and click Retry",
                         path.display()
-                    ));
+                    )));
                     banner.set_revealed(true);
+                    dashboard_link.set_visible(true);
                     status_label.set_label("Setup required");
                 }
 
                 Event::LoggedIn { display_name } => {
                     connected.set(true);
                     banner.set_revealed(false);
+                    dashboard_link.set_visible(false);
                     status_label.set_label(&format!("Connected as {display_name}"));
                 }
 
                 Event::Error(message) => {
+                    let escaped = glib::markup_escape_text(&message);
                     if connected.get() {
-                        toast_overlay.add_toast(libadwaita::Toast::new(&message));
+                        toast_overlay.add_toast(libadwaita::Toast::new(&escaped));
                     } else {
-                        banner.set_title(&message);
+                        banner.set_title(&escaped);
                         banner.set_revealed(true);
+                        dashboard_link.set_visible(true);
                         status_label.set_label("Connection error");
                     }
                 }
 
-                Event::Playlists(playlists_list) => playlists.set_playlists(playlists_list),
-
-                Event::PlaylistTracks { playlist, tracks } => track_list.show_tracks(&playlist.name, tracks),
+                Event::Recents(tracks) => recents.set_recents(tracks),
 
                 Event::SearchResults(tracks) => track_list.show_tracks("Search results", tracks),
 
                 Event::NowPlaying(track) => {
-                    track_list.set_now_playing_uri(track.as_ref().map(|t| t.uri.clone()));
+                    let uri = track.as_ref().map(|t| t.uri.clone());
+                    track_list.set_now_playing_uri(uri.clone());
+                    recents.set_now_playing_uri(uri);
                     now_playing.set_now_playing(track.as_ref());
                 }
 
@@ -167,4 +199,148 @@ fn load_css() {
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+}
+
+// ── Self-update ──────────────────────────────────────────────────────────────
+
+fn check_for_updates(window: &libadwaita::ApplicationWindow) {
+    crate::update::check_for_update(glib::clone!(
+        #[weak]
+        window,
+        #[upgrade_or]
+        (),
+        move |result| match result {
+            crate::update::CheckResult::UpToDate => show_alert(
+                &window,
+                "Velo Player is up to date",
+                &format!("You're running the latest version (commit {}).", crate::update::CURRENT_COMMIT),
+            ),
+            crate::update::CheckResult::Available { local, remote } => {
+                let dialog = gtk4::AlertDialog::builder()
+                    .modal(true)
+                    .message("Update available")
+                    .detail(format!(
+                        "Velo Player {local} → {remote} is available.\n\n\
+                         Pull, build, and install the update now? \
+                         You may be asked for your password to finish installing."
+                    ))
+                    .buttons(["Later", "Update Now"])
+                    .cancel_button(0)
+                    .default_button(1)
+                    .build();
+
+                dialog.choose(Some(&window), gtk4::gio::Cancellable::NONE, glib::clone!(
+                    #[weak]
+                    window,
+                    #[upgrade_or]
+                    (),
+                    move |response| {
+                        if matches!(response, Ok(1)) {
+                            start_update(&window);
+                        }
+                    }
+                ));
+            }
+            crate::update::CheckResult::Unavailable(msg) => {
+                show_alert(&window, "Can't check for updates", &msg)
+            }
+        }
+    ));
+}
+
+fn start_update(window: &libadwaita::ApplicationWindow) {
+    let progress = progress_dialog(
+        window,
+        "Updating Velo Player…",
+        "Pulling, building, and installing the latest version.\nThis may take a few minutes.",
+    );
+
+    crate::update::run_update(glib::clone!(
+        #[weak]
+        window,
+        #[strong]
+        progress,
+        #[upgrade_or]
+        (),
+        move |result| {
+            progress.close();
+            match result {
+                crate::update::UpdateResult::Success => {
+                    let dialog = gtk4::AlertDialog::builder()
+                        .modal(true)
+                        .message("Update complete")
+                        .detail("Velo Player has been updated. Restart now to use the new version?")
+                        .buttons(["Later", "Restart Now"])
+                        .cancel_button(0)
+                        .default_button(1)
+                        .build();
+
+                    dialog.choose(Some(&window), gtk4::gio::Cancellable::NONE, |response| {
+                        if matches!(response, Ok(1)) {
+                            crate::update::restart();
+                        }
+                    });
+                }
+                crate::update::UpdateResult::Failed(msg) => {
+                    show_alert(&window, "Update failed", &msg)
+                }
+            }
+        }
+    ));
+}
+
+fn show_alert(window: &libadwaita::ApplicationWindow, message: &str, detail: &str) {
+    gtk4::AlertDialog::builder()
+        .modal(true)
+        .message(message)
+        .detail(detail)
+        .buttons(["OK"])
+        .build()
+        .show(Some(window));
+}
+
+/// A small modal "working" dialog with a spinner, shown while an update runs
+/// in the background. Caller closes it via the returned handle.
+fn progress_dialog(parent: &libadwaita::ApplicationWindow, title: &str, body: &str) -> gtk4::Window {
+    let spinner = gtk4::Spinner::builder()
+        .spinning(true)
+        .width_request(32)
+        .height_request(32)
+        .halign(gtk4::Align::Center)
+        .build();
+
+    let title_lbl = gtk4::Label::builder()
+        .label(title)
+        .css_classes(vec!["title-4"])
+        .build();
+
+    let body_lbl = gtk4::Label::builder()
+        .label(body)
+        .wrap(true)
+        .justify(gtk4::Justification::Center)
+        .css_classes(vec!["dim-label"])
+        .build();
+
+    let content = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .spacing(14)
+        .margin_top(28)
+        .margin_bottom(28)
+        .margin_start(28)
+        .margin_end(28)
+        .build();
+    content.append(&spinner);
+    content.append(&title_lbl);
+    content.append(&body_lbl);
+
+    let win = gtk4::Window::builder()
+        .transient_for(parent)
+        .modal(true)
+        .resizable(false)
+        .deletable(false)
+        .destroy_with_parent(true)
+        .build();
+    win.set_child(Some(&content));
+    win.present();
+    win
 }

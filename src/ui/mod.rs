@@ -1,10 +1,10 @@
 pub mod cover_art;
 pub mod now_playing;
-pub mod playlists;
+pub mod recents;
 pub mod tracklist;
 
 pub use now_playing::NowPlayingPanel;
-pub use playlists::PlaylistsPanel;
+pub use recents::RecentsPanel;
 pub use tracklist::TrackListPanel;
 
 /// Formats a duration in milliseconds as `m:ss` (or `h:mm:ss` for tracks

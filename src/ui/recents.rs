@@ -4,71 +4,57 @@ use std::rc::Rc;
 use async_channel::Sender;
 use gtk4::prelude::*;
 
-use crate::spotify::{Command, Playlist};
+use crate::spotify::{Command, Track};
 
 use super::cover_art;
 
-/// Right-hand sidebar listing the current user's playlists. Clicking one
-/// asks the controller to fetch its tracks.
-pub struct PlaylistsPanel {
+/// Right-hand sidebar listing recently played tracks. Clicking one replays
+/// the recents list starting from that track.
+pub struct RecentsPanel {
     pub root: gtk4::Box,
     list_box: gtk4::ListBox,
     stack: gtk4::Stack,
-    playlists: Rc<RefCell<Vec<Playlist>>>,
+    tracks: Rc<RefCell<Vec<Track>>>,
+    now_playing_uri: Rc<RefCell<Option<String>>>,
 }
 
-impl PlaylistsPanel {
+impl RecentsPanel {
     pub fn build(cmd_tx: Sender<Command>) -> Self {
         let root = gtk4::Box::builder()
             .orientation(gtk4::Orientation::Vertical)
-            .css_classes(vec!["velo-sidebar", "playlists-panel"])
+            .css_classes(vec!["velo-sidebar", "recents-panel"])
             .width_request(300)
             .build();
 
         let header = gtk4::Box::builder().css_classes(vec!["sidebar-header"]).build();
         let title = gtk4::Label::builder()
             .css_classes(vec!["panel-title"])
-            .label("PLAYLISTS")
+            .label("RECENTS")
             .halign(gtk4::Align::Start)
             .hexpand(true)
-            .build();
-        header.append(&title);
-
-        let refresh_btn = gtk4::Button::builder()
-            .icon_name("view-refresh-symbolic")
-            .tooltip_text("Refresh playlists")
-            .css_classes(vec!["flat", "sidebar-icon-btn"])
             .valign(gtk4::Align::Center)
             .build();
-        refresh_btn.connect_clicked(glib::clone!(
-            #[strong]
-            cmd_tx,
-            move |_| {
-                let _ = cmd_tx.send_blocking(Command::LoadPlaylists);
-            }
-        ));
-        header.append(&refresh_btn);
+        header.append(&title);
 
         let list_box = gtk4::ListBox::builder()
             .css_classes(vec!["panel-list"])
             .selection_mode(gtk4::SelectionMode::None)
             .build();
 
-        let playlists: Rc<RefCell<Vec<Playlist>>> = Rc::new(RefCell::new(Vec::new()));
+        let tracks: Rc<RefCell<Vec<Track>>> = Rc::new(RefCell::new(Vec::new()));
 
         list_box.connect_row_activated(glib::clone!(
             #[strong]
             cmd_tx,
             #[strong]
-            playlists,
+            tracks,
             move |_, row| {
                 let index = row.index();
                 if index < 0 {
                     return;
                 }
-                if let Some(playlist) = playlists.borrow().get(index as usize) {
-                    let _ = cmd_tx.send_blocking(Command::LoadPlaylist(playlist.clone()));
-                }
+                let queue = tracks.borrow().clone();
+                let _ = cmd_tx.send_blocking(Command::PlayQueue { tracks: queue, start_index: index as usize });
             }
         ));
 
@@ -79,45 +65,68 @@ impl PlaylistsPanel {
             .build();
 
         let empty_page = libadwaita::StatusPage::builder()
-            .icon_name("view-list-symbolic")
-            .title("No playlists yet")
-            .description("Connect to Spotify to see your library here.")
+            .icon_name("document-open-recent-symbolic")
+            .title("Nothing played yet")
+            .description("Tracks you play will show up here.")
             .vexpand(true)
             .build();
 
         let stack = gtk4::Stack::new();
         stack.add_named(&empty_page, Some("empty"));
-        stack.add_named(&scroller, Some("playlists"));
+        stack.add_named(&scroller, Some("recents"));
         stack.set_visible_child_name("empty");
 
         root.append(&header);
         root.append(&stack);
 
-        Self { root, list_box, stack, playlists }
+        Self { root, list_box, stack, tracks, now_playing_uri: Rc::new(RefCell::new(None)) }
     }
 
-    /// Replaces the playlist list with `playlists`.
-    pub fn set_playlists(&self, playlists: Vec<Playlist>) {
+    /// Replaces the recents list with `tracks` (most-recent-first).
+    pub fn set_recents(&self, tracks: Vec<Track>) {
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }
 
-        if playlists.is_empty() {
-            *self.playlists.borrow_mut() = playlists;
+        if tracks.is_empty() {
+            *self.tracks.borrow_mut() = tracks;
             self.stack.set_visible_child_name("empty");
             return;
         }
 
-        for playlist in &playlists {
-            self.list_box.append(&build_playlist_row(playlist));
+        let now_playing = self.now_playing_uri.borrow().clone();
+        for track in &tracks {
+            let row = build_track_row(track);
+            if Some(&track.uri) == now_playing.as_ref() {
+                row.add_css_class("playing");
+            }
+            self.list_box.append(&row);
         }
 
-        *self.playlists.borrow_mut() = playlists;
-        self.stack.set_visible_child_name("playlists");
+        *self.tracks.borrow_mut() = tracks;
+        self.stack.set_visible_child_name("recents");
+    }
+
+    /// Highlights the row matching `uri` (if it's part of the recents list)
+    /// and un-highlights everything else.
+    pub fn set_now_playing_uri(&self, uri: Option<String>) {
+        *self.now_playing_uri.borrow_mut() = uri.clone();
+
+        let tracks = self.tracks.borrow();
+        let mut index = 0;
+        while let Some(row) = self.list_box.row_at_index(index) {
+            let is_playing = tracks.get(index as usize).map(|t| Some(&t.uri) == uri.as_ref()).unwrap_or(false);
+            if is_playing {
+                row.add_css_class("playing");
+            } else {
+                row.remove_css_class("playing");
+            }
+            index += 1;
+        }
     }
 }
 
-fn build_playlist_row(playlist: &Playlist) -> gtk4::ListBoxRow {
+fn build_track_row(track: &Track) -> gtk4::ListBoxRow {
     let art = gtk4::Picture::builder()
         .css_classes(vec!["playlist-art"])
         .width_request(40)
@@ -126,18 +135,19 @@ fn build_playlist_row(playlist: &Playlist) -> gtk4::ListBoxRow {
         .can_shrink(true)
         .build();
     art.set_overflow(gtk4::Overflow::Hidden);
-    cover_art::set_picture_from_url(&art, playlist.image.clone());
+    cover_art::set_picture_from_url(&art, track.album_art.clone());
 
     let title = gtk4::Label::builder()
         .css_classes(vec!["row-title"])
-        .label(&playlist.name)
+        .label(&track.name)
         .halign(gtk4::Align::Start)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .build();
     let subtitle = gtk4::Label::builder()
         .css_classes(vec!["row-meta"])
-        .label(format!("{} tracks", playlist.track_count))
+        .label(track.artist_names())
         .halign(gtk4::Align::Start)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
         .build();
 
     let labels = gtk4::Box::builder().orientation(gtk4::Orientation::Vertical).valign(gtk4::Align::Center).hexpand(true).build();

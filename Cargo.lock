@@ -612,6 +612,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
 dependencies = [
  "log",
+ "regex",
 ]
 
 [[package]]
@@ -3790,6 +3791,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "dirs",
+ "env_logger",
  "gio",
  "glib",
  "gtk4",

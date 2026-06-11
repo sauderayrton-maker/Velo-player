@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 /// A single track, normalised from the Spotify Web API into just the
 /// fields the UI needs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub uri: String,
     pub name: String,
@@ -16,16 +18,6 @@ impl Track {
     pub fn artist_names(&self) -> String {
         self.artists.join(", ")
     }
-}
-
-/// A playlist from the current user's library.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Playlist {
-    pub id: String,
-    pub uri: String,
-    pub name: String,
-    pub image: Option<String>,
-    pub track_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,10 +34,6 @@ pub enum Command {
     Login,
     /// Search the catalog for tracks matching `query`.
     Search(String),
-    /// Refresh the current user's playlists.
-    LoadPlaylists,
-    /// Fetch the tracks of a playlist.
-    LoadPlaylist(Playlist),
     /// Replace the play queue and start playing `tracks[start_index]`.
     PlayQueue { tracks: Vec<Track>, start_index: usize },
     TogglePlayPause,
@@ -67,8 +55,8 @@ pub enum Event {
     ConfigRequired(PathBuf),
     LoggedIn { display_name: String },
     Error(String),
-    Playlists(Vec<Playlist>),
-    PlaylistTracks { playlist: Playlist, tracks: Vec<Track> },
+    /// The recently played tracks, most-recent-first.
+    Recents(Vec<Track>),
     SearchResults(Vec<Track>),
     /// The currently loaded track, or `None` if playback has stopped.
     NowPlaying(Option<Track>),

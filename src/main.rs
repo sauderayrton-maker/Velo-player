@@ -2,11 +2,14 @@ use gtk4::prelude::*;
 
 mod spotify;
 mod ui;
+mod update;
 mod window;
 
 use spotify::{controller, Command, Event};
 
 fn main() -> glib::ExitCode {
+    env_logger::init();
+
     let app = libadwaita::Application::builder().application_id("com.velo.Player").build();
 
     app.connect_activate(|app| {

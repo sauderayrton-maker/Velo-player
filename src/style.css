@@ -59,6 +59,17 @@ label.status-label {
     background-color: @view_bg_color;
 }
 
+/* ── Setup link — opens the Spotify Developer Dashboard ─────────────────── */
+button.dashboard-link {
+    margin: 8px 0;
+    font-size: 12.5px;
+    color: rgba(138, 180, 212, 0.85);
+}
+button.dashboard-link:hover {
+    color: #ffffff;
+    text-shadow: 0 0 14px rgba(138, 180, 212, 0.55);
+}
+
 /* ── Now Playing panel (left) — the turntable ───────────────────────────── */
 .now-playing-panel {
     background-color: #0a0b11;
@@ -300,6 +311,13 @@ button.sidebar-icon-btn {
 }
 .panel-list > row:active {
     background-color: rgba(138, 180, 212, 0.10);
+}
+.panel-list > row.playing {
+    background-color: rgba(138, 180, 212, 0.10);
+    box-shadow: inset 2px 0 0 rgba(138, 180, 212, 0.65);
+}
+.panel-list > row.playing .row-title {
+    color: @accent_color;
 }
 
 .row-title {

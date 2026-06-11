@@ -9,10 +9,9 @@ use crate::spotify::{Command, Track};
 use super::cover_art;
 use super::format_duration;
 
-/// The centre content area: a header (playlist name / "Search results"),
-/// and a scrollable list of tracks. Used for both search results and
-/// playlist browsing. Clicking a row replaces the play queue with the
-/// currently shown tracks, starting at the clicked one.
+/// The centre content area: a header and a scrollable list of search
+/// results. Clicking a row replaces the play queue with the currently
+/// shown tracks, starting at the clicked one.
 pub struct TrackListPanel {
     pub root: gtk4::Box,
     stack: gtk4::Stack,
@@ -68,7 +67,7 @@ impl TrackListPanel {
         let empty_page = libadwaita::StatusPage::builder()
             .icon_name("folder-music-symbolic")
             .title("Nothing to show yet")
-            .description("Search for a song, or pick a playlist on the right.")
+            .description("Search for a song to get started.")
             .vexpand(true)
             .build();
 

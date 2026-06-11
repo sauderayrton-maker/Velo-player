@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Velo Player
+GenericName=Music Player
+Comment=Native Spotify client with the Velo cockpit aesthetic
+Exec=velo-player
+Icon=velo-player
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+StartupNotify=true
+StartupWMClass=com.velo.Player
+Keywords=spotify;music;player;audio;

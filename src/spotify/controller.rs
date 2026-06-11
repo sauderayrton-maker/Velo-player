@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,13 +16,18 @@ use super::api;
 use super::auth::{self, Config, Paths};
 use super::types::{Command, Event, PlaybackStatus, Track};
 
-/// Tracks playback queue position and play/pause state, which the GTK side
-/// doesn't need to know the internals of.
+/// How many recently played tracks to remember.
+const MAX_RECENTS: usize = 30;
+
+/// Tracks playback queue position, play/pause state, and recently played
+/// tracks, which the GTK side doesn't need to know the internals of.
 #[derive(Default)]
 struct PlayerState {
     queue: Vec<Track>,
     index: Option<usize>,
     is_playing: bool,
+    /// Recently played tracks, most-recent-first.
+    recents: Vec<Track>,
 }
 
 /// Spawns the background thread that owns the librespot session and player.
@@ -72,7 +78,7 @@ async fn run(cmd_rx: Receiver<Command>, evt_tx: Sender<Event>) {
     // Connect, retrying the OAuth login on demand if it fails.
     loop {
         let _ = evt_tx.send(Event::Status("Connecting to Spotify...".into())).await;
-        match auth::connect(&session, &cache, &config).await {
+        match auth::connect(&session, &paths, &config).await {
             Ok(()) => break,
             Err(e) => {
                 let _ = evt_tx.send(Event::Error(format!("{e:#}"))).await;
@@ -106,24 +112,23 @@ async fn run(cmd_rx: Receiver<Command>, evt_tx: Sender<Event>) {
         backend(None, audio_format)
     });
 
-    fetch_playlists(&session, &evt_tx);
-
     let mut player_events = player.get_player_event_channel();
-    let mut state = PlayerState::default();
+    let mut state = PlayerState { recents: load_recents(&paths), ..PlayerState::default() };
+    let _ = evt_tx.send(Event::Recents(state.recents.clone())).await;
 
     loop {
         tokio::select! {
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Ok(cmd) => {
-                        handle_command(cmd, &session, &player, &mixer, &cache, &evt_tx, &mut state).await
+                        handle_command(cmd, &player, &mixer, &cache, &evt_tx, &mut state, &paths, &config).await
                     }
                     Err(_) => break,
                 }
             }
             event = player_events.recv() => {
                 match event {
-                    Some(event) => handle_player_event(event, &player, &evt_tx, &mut state).await,
+                    Some(event) => handle_player_event(event, &player, &evt_tx, &mut state, &paths).await,
                     None => break,
                 }
             }
@@ -133,12 +138,13 @@ async fn run(cmd_rx: Receiver<Command>, evt_tx: Sender<Event>) {
 
 async fn handle_command(
     cmd: Command,
-    session: &Session,
     player: &Arc<Player>,
     mixer: &SoftMixer,
     cache: &Cache,
     evt_tx: &Sender<Event>,
     state: &mut PlayerState,
+    paths: &Paths,
+    config: &Config,
 ) {
     match cmd {
         // Already connected by the time the main loop runs.
@@ -149,19 +155,7 @@ async fn handle_command(
                 let _ = evt_tx.send(Event::SearchResults(Vec::new())).await;
                 return;
             }
-            spawn_api_call(session, evt_tx, move |token| api::search_tracks(&token, &query), Event::SearchResults);
-        }
-
-        Command::LoadPlaylists => fetch_playlists(session, evt_tx),
-
-        Command::LoadPlaylist(playlist) => {
-            let for_event = playlist.clone();
-            spawn_api_call(
-                session,
-                evt_tx,
-                move |token| api::playlist_tracks(&token, &playlist.id),
-                move |tracks| Event::PlaylistTracks { playlist: for_event, tracks },
-            );
+            spawn_api_call(paths, config, evt_tx, move |token| api::search_tracks(&token, &query), Event::SearchResults);
         }
 
         Command::PlayQueue { tracks, start_index } => {
@@ -172,7 +166,7 @@ async fn handle_command(
             let track = tracks[index].clone();
             state.queue = tracks;
             state.index = Some(index);
-            load_track(player, &track, evt_tx).await;
+            load_track(player, &track, evt_tx, state, paths).await;
         }
 
         Command::TogglePlayPause => {
@@ -186,8 +180,8 @@ async fn handle_command(
             }
         }
 
-        Command::Next => step_queue(player, state, evt_tx, 1).await,
-        Command::Previous => step_queue(player, state, evt_tx, -1).await,
+        Command::Next => step_queue(player, state, evt_tx, paths, 1).await,
+        Command::Previous => step_queue(player, state, evt_tx, paths, -1).await,
 
         Command::Seek(position_ms) => player.seek(position_ms),
 
@@ -205,6 +199,7 @@ async fn handle_player_event(
     player: &Arc<Player>,
     evt_tx: &Sender<Event>,
     state: &mut PlayerState,
+    paths: &Paths,
 ) {
     match event {
         PlayerEvent::Playing { position_ms, .. } => {
@@ -227,7 +222,16 @@ async fn handle_player_event(
             let _ = evt_tx.send(Event::PlaybackStatus(PlaybackStatus::Stopped)).await;
         }
         PlayerEvent::EndOfTrack { .. } => {
-            step_queue(player, state, evt_tx, 1).await;
+            step_queue(player, state, evt_tx, paths, 1).await;
+        }
+        PlayerEvent::Unavailable { .. } => {
+            let track_name = state.index.and_then(|i| state.queue.get(i)).map(|t| t.name.clone());
+            let message = match track_name {
+                Some(name) => format!("Skipping \"{name}\": unavailable for playback"),
+                None => "Skipping track: unavailable for playback".to_string(),
+            };
+            let _ = evt_tx.send(Event::Error(message)).await;
+            step_queue(player, state, evt_tx, paths, 1).await;
         }
         PlayerEvent::VolumeChanged { volume } => {
             let _ = evt_tx.send(Event::Volume(volume)).await;
@@ -236,12 +240,19 @@ async fn handle_player_event(
     }
 }
 
-/// Loads `track` into the player and tells the UI it's now the current track.
-async fn load_track(player: &Arc<Player>, track: &Track, evt_tx: &Sender<Event>) {
+/// Loads `track` into the player, tells the UI it's now the current track,
+/// and records it in the recently-played list.
+async fn load_track(player: &Arc<Player>, track: &Track, evt_tx: &Sender<Event>, state: &mut PlayerState, paths: &Paths) {
     match SpotifyUri::from_uri(&track.uri) {
         Ok(uri) => {
             player.load(uri, true, 0);
             let _ = evt_tx.send(Event::NowPlaying(Some(track.clone()))).await;
+
+            state.recents.retain(|t| t.uri != track.uri);
+            state.recents.insert(0, track.clone());
+            state.recents.truncate(MAX_RECENTS);
+            save_recents(paths, &state.recents);
+            let _ = evt_tx.send(Event::Recents(state.recents.clone())).await;
         }
         Err(e) => {
             let _ = evt_tx.send(Event::Error(format!("Couldn't play \"{}\": {e}", track.name))).await;
@@ -251,7 +262,7 @@ async fn load_track(player: &Arc<Player>, track: &Track, evt_tx: &Sender<Event>)
 
 /// Moves the queue cursor by `delta` (+1 for next, -1 for previous), loading
 /// the new track or stopping playback if the queue is exhausted.
-async fn step_queue(player: &Arc<Player>, state: &mut PlayerState, evt_tx: &Sender<Event>, delta: i64) {
+async fn step_queue(player: &Arc<Player>, state: &mut PlayerState, evt_tx: &Sender<Event>, paths: &Paths, delta: i64) {
     let Some(index) = state.index else { return };
     let new_index = index as i64 + delta;
 
@@ -265,7 +276,7 @@ async fn step_queue(player: &Arc<Player>, state: &mut PlayerState, evt_tx: &Send
     let new_index = new_index as usize;
     state.index = Some(new_index);
     let track = state.queue[new_index].clone();
-    load_track(player, &track, evt_tx).await;
+    load_track(player, &track, evt_tx, state, paths).await;
 }
 
 async fn send_position(evt_tx: &Sender<Event>, state: &PlayerState, position_ms: u32) {
@@ -273,22 +284,39 @@ async fn send_position(evt_tx: &Sender<Event>, state: &PlayerState, position_ms:
     let _ = evt_tx.send(Event::Position { position_ms, duration_ms }).await;
 }
 
-fn fetch_playlists(session: &Session, evt_tx: &Sender<Event>) {
-    spawn_api_call(session, evt_tx, |token| api::current_user_playlists(&token), Event::Playlists);
+fn recents_file(paths: &Paths) -> PathBuf {
+    paths.cache_dir.join("recent_tracks.json")
+}
+
+fn load_recents(paths: &Paths) -> Vec<Track> {
+    std::fs::read_to_string(recents_file(paths))
+        .ok()
+        .and_then(|data| serde_json::from_str(&data).ok())
+        .unwrap_or_default()
+}
+
+fn save_recents(paths: &Paths, tracks: &[Track]) {
+    if std::fs::create_dir_all(&paths.cache_dir).is_err() {
+        return;
+    }
+    if let Ok(data) = serde_json::to_string(tracks) {
+        let _ = std::fs::write(recents_file(paths), data);
+    }
 }
 
 /// Fetches a Web API token, runs `call` on a blocking thread with it, and
 /// reports the result (or any error) back to the UI via `evt_tx`.
-fn spawn_api_call<F, T, M>(session: &Session, evt_tx: &Sender<Event>, call: F, on_success: M)
+fn spawn_api_call<F, T, M>(paths: &Paths, config: &Config, evt_tx: &Sender<Event>, call: F, on_success: M)
 where
     F: FnOnce(String) -> Result<T> + Send + 'static,
     T: Send + 'static,
     M: FnOnce(T) -> Event + Send + 'static,
 {
-    let session = session.clone();
+    let paths = paths.clone();
+    let config = config.clone();
     let evt_tx = evt_tx.clone();
     tokio::spawn(async move {
-        let token = match api::web_api_token(&session).await {
+        let token = match auth::web_api_token(&paths, &config).await {
             Ok(token) => token,
             Err(e) => {
                 let _ = evt_tx.send(Event::Error(format!("{e:#}"))).await;
