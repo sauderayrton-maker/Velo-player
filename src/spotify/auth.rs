@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use librespot::core::authentication::Credentials;
@@ -171,7 +171,13 @@ pub async fn connect(session: &Session, paths: &Paths, config: &Config) -> Resul
         let stored = if stored.is_fresh() {
             Some(stored)
         } else {
-            refresh_oauth_token(config, &stored.refresh_token).await.ok()
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                refresh_oauth_token(config, &stored.refresh_token),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok())
         };
 
         if let Some(stored) = stored {
@@ -180,6 +186,7 @@ pub async fn connect(session: &Session, paths: &Paths, config: &Config) -> Resul
                 let _ = save_token(paths, &stored);
                 return Ok(());
             }
+            // Token was valid but session rejected it; fall through to a fresh login.
         }
     }
 
